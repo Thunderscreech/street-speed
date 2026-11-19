@@ -1,0 +1,63 @@
+{
+  "_readme": "Copy to config.json and edit. Keys starting with _ are comments. See README.md for each setting.",
+  "speed_unit": "mph",
+  "ha_url": "http://homeassistant.local:8123",
+  "camera": {
+    "host": "192.168.1.50",
+    "port": 554,
+    "user": "viewer",
+    "_streams": "RTSP paths after the port. Reolink: h264Preview_01_sub / h264Preview_01_main. Hikvision: Streaming/Channels/102 / 101. Dahua/Amcrest: cam/realmonitor?channel=1&subtype=1 / subtype=0.",
+    "stream": "h264Preview_01_sub",
+    "clip_stream": "h264Preview_01_main",
+    "_pan": "PTZ cameras only: an HA sensor with the pan position and the value it has when aimed as calibrated. Remove both for a fixed camera.",
+    "pan_entity": "",
+    "home_pan": ""
+  },
+  "frame_size": [640, 360],
+  "_road_polygon": "written by tools/calibrate.py from your road outline (pixels in frame_size)",
+  "road_polygon": [],
+  "_calibration": "written by tools/calibrate.py",
+  "calibration": {},
+  "detector": {
+    "device": "usb",
+    "_device": "usb or pci for a Coral Edge TPU; cpu to run without one (~110 ms per frame on one core)",
+    "model": "/app/models/ssdlite_mobiledet_coco_qat_postprocess_edgetpu.tflite",
+    "cpu_model": "/app/models/ssdlite_mobiledet_coco_qat_postprocess.tflite",
+    "cpu_threads": 2,
+    "labels": "/app/models/coco_labels.txt",
+    "classes": ["car", "truck", "bus", "motorcycle"],
+    "min_score": 0.35
+  },
+  "motion": {
+    "scale": [160, 90],
+    "pixel_threshold": 25,
+    "min_pixels": 15,
+    "hold_s": 1.5
+  },
+  "fit": {
+    "min_points": 6,
+    "min_duration_s": 0.5,
+    "min_span_m": 8,
+    "max_rms_m": 1.2,
+    "min_speed": 3,
+    "max_speed": 100,
+    "max_u": 24,
+    "outlier_floor_m": 0.75,
+    "min_inlier_frac": 0.6
+  },
+  "camera_moved_px": 2.0,
+  "keep_days": 14,
+  "alert": {
+    "enabled": false,
+    "speed": 50,
+    "min_points": 7,
+    "min_span_m": 15,
+    "max_rms_m": 0.8,
+    "pre_s": 3.0,
+    "post_s": 1.5,
+    "stream_lag_s": 1.8,
+    "_channel": "only for a Discord bot (DISCORD_BOT_TOKEN); not needed with DISCORD_WEBHOOK_URL",
+    "channel": ""
+  },
+  "debug_tracks": false
+}

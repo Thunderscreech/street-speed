@@ -1,0 +1,75 @@
+# A sections view for a Home Assistant dashboard. In the dashboard editor: Add view -> Edit in YAML, paste this.
+# Speeds are shown in whatever speed_unit the service publishes (mph or km/h).
+title: Street speeds
+path: street-speeds
+type: sections
+max_columns: 2
+sections:
+  - type: grid
+    column_span: 2
+    cards:
+      - type: heading
+        heading: Vehicle speeds
+        icon: mdi:speedometer
+      - type: markdown
+        text_only: true
+        grid_options: {columns: 12}
+        content: >-
+          {% set s = states.sensor.street_speed_last_vehicle %}
+          <center><ha-icon icon="mdi:speedometer"></ha-icon> <b>Last vehicle</b>
+          <h1 style="font-size:4em;margin:0">{{ s.state if s and s.state not in ['unknown','unavailable'] else '–' }}
+          <span style="font-size:0.35em">{{ s.attributes.unit_of_measurement if s else '' }}</span></h1>
+          {% if s and s.attributes.measured_at is defined %}{{ 'Heading away from the camera' if s.attributes.direction == 'away' else 'Heading toward the camera' }}
+          · {{ s.attributes.vehicle }} · {{ relative_time(as_datetime(s.attributes.measured_at)) }} ago{% else %}No vehicles measured yet{% endif %}
+          <br>Measured today: <b>{{ states('sensor.street_speed_measured_today') }}</b></center>
+      - type: tile
+        entity: sensor.street_speed_avg_this_hour
+        name: Average this hour
+        grid_options: {columns: 6}
+      - type: tile
+        entity: sensor.street_speed_avg_today
+        name: Average today
+        grid_options: {columns: 6}
+      - type: markdown
+        title: Top speeds
+        grid_options: {columns: 12}
+        content: |-
+          | | Top speed | When |
+          |:--|--:|:--|
+          {%- for k, label in [('today','Today'),('this_week','This week'),('this_month','This month')] %}
+          {%- set s = states['sensor.street_speed_max_' ~ k] %}
+          {%- if s and s.state not in ['unknown','unavailable'] %}
+          {%- set w = as_local(as_datetime(s.attributes.measured_at)) %}
+          | {{ label }} | **{{ s.state }} {{ s.attributes.unit_of_measurement }}** | {{ w.strftime('%-I:%M %p') if k == 'today' else w.strftime('%a %b %-d, %-I:%M %p') }} · {{ s.attributes.vehicle }} {{ 'going away' if s.attributes.direction == 'away' else 'coming toward' }} |
+          {%- else %}
+          | {{ label }} | – | none measured yet |
+          {%- endif %}
+          {%- endfor %}
+      - type: heading
+        heading: Average speed by hour
+        heading_style: subtitle
+        icon: mdi:chart-line
+      - type: statistics-graph
+        entities:
+          - entity: street_speed:avg_speed_hourly
+            name: Average
+        chart_type: bar
+        period: hour
+        stat_types: [mean]
+        days_to_show: 2
+        hide_legend: true
+        grid_options: {columns: full, rows: 5}
+      - type: heading
+        heading: Average speed by day
+        heading_style: subtitle
+        icon: mdi:calendar-week
+      - type: statistics-graph
+        entities:
+          - entity: street_speed:avg_speed_daily
+            name: Average
+        chart_type: bar
+        period: day
+        stat_types: [mean]
+        days_to_show: 14
+        hide_legend: true
+        grid_options: {columns: full, rows: 5}

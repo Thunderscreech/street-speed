@@ -1,0 +1,18 @@
+services:
+  street-speed:
+    build: .
+    image: street-speed:latest
+    container_name: street-speed
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./data:/data
+      # USB Coral: it re-enumerates (1a6e:089a -> 18d1:9302) when the runtime loads, so pass the whole bus
+      - /dev/bus/usb:/dev/bus/usb
+    device_cgroup_rules:
+      - 'c 189:* rmw'
+    # PCIe/M.2 Coral instead: remove the two USB lines above and use
+    # devices: ["/dev/apex_0:/dev/apex_0"]
+    tmpfs:
+      - /buffer:size=256m   # rolling video buffer for alert clips (RAM, no disk wear)

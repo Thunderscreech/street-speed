@@ -1,0 +1,7 @@
+.env
+config.json
+data/
+models/*.tflite
+models/coco_labels.txt
+vendor/*.so*
+__pycache__/

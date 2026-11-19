@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calibration Point Picker</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #dcdcd6; --accent: #2563eb;
+    --near: #e0a100; --far: #0ea5e9; --centre: #f97316; --lm: #dc2626; --poly: #16a34a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161615; --panel: #1f1f1d; --text: #ecece8; --muted: #9a9a93; --line: #34342f; --accent: #60a5fa;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #161615; --panel: #1f1f1d; --text: #ecece8; --muted: #9a9a93; --line: #34342f; --accent: #60a5fa;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; background: var(--bg); color: var(--text); }
+  .app { display: grid; grid-template-columns: 1fr 320px; height: 100vh; }
+  @media (max-width: 800px) { .app { grid-template-columns: 1fr; grid-template-rows: 60vh auto; height: auto; } }
+  .stage { position: relative; overflow: hidden; background: #000; cursor: crosshair; touch-action: none; }
+  canvas { display: block; }
+  .empty { position: absolute; inset: 0; display: grid; place-items: center; color: #bbb; text-align: center; padding: 16px; }
+  aside { background: var(--panel); border-left: 1px solid var(--line); padding: 14px 16px; overflow-y: auto; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 6px; }
+  p.hint { color: var(--muted); margin: 4px 0; font-size: 13px; }
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .modes button { text-align: left; }
+  button, select, input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  button { cursor: pointer; }
+  button.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+  .row label { color: var(--muted); }
+  input[type=number] { width: 90px; }
+  ul { list-style: none; padding: 0; margin: 0; }
+  li { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 3px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  li button { padding: 1px 6px; font-size: 12px; }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #status { color: var(--muted); font-size: 12px; min-height: 1.4em; }
+  dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); }
+  dialog input { width: 100%; margin: 4px 0 10px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="stage" id="stage">
+    <canvas id="cv"></canvas>
+    <div class="empty" id="empty">Open a full-resolution frame from the camera (File → Open image) to start.<br>Scroll to zoom, right-drag or Shift-drag to pan.</div>
+  </div>
+  <aside>
+    <h1>Calibration point picker</h1>
+    <p class="hint">Mark the road on a camera frame, then save <b>points.json</b> for <code>tools/calibrate.py</code>.</p>
+
+    <h2>File</h2>
+    <div class="actions">
+      <label><button type="button" onclick="imgIn.click()">Open image</button></label>
+      <button type="button" onclick="jsonIn.click()">Load points.json</button>
+    </div>
+    <input type="file" id="imgIn" accept="image/*" hidden>
+    <input type="file" id="jsonIn" accept=".json,application/json" hidden>
+
+    <h2>Road</h2>
+    <div class="row">
+      <label for="units">Units</label>
+      <select id="units"><option value="ft">feet</option><option value="m">metres</option></select>
+      <label for="width">Pavement width</label>
+      <input type="number" id="width" step="0.1" min="1" placeholder="22">
+    </div>
+
+    <h2>What are you clicking?</h2>
+    <div class="modes" id="modes"></div>
+    <p class="hint" id="modeHint"></p>
+
+    <h2>Points</h2>
+    <ul id="list"></ul>
+    <div class="actions">
+      <button type="button" onclick="undo()">Undo (Ctrl+Z)</button>
+      <button type="button" class="primary" onclick="save()">Save points.json</button>
+    </div>
+    <p id="status"></p>
+
+    <h2>How to measure</h2>
+    <p class="hint">Pick one landmark on or beside the road as zero (a mailbox, a post). Measure along the road with a tape or wheel to 3–6 more landmarks spread across the view, negative toward the camera, positive away. Mark both pavement edges and the centre line with a few clicks each, spread along their length. Then outline the pavement area where cars should be measured.</p>
+  </aside>
+</div>
+
+<dialog id="lmDlg">
+  <form method="dialog">
+    <label>Landmark name<input id="lmName" placeholder="e.g. mailbox"></label>
+    <label>Distance along the road from your zero landmark (<span id="lmUnit">ft</span>; negative = toward the camera)
+      <input id="lmU" type="number" step="0.1" required></label>
+    <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary">Add</button></div>
+  </form>
+</dialog>
+
+<script>
+const MODES = {
+  landmark:    { label: 'Landmark',    color: 'var(--lm)',     hint: 'Click a landmark at the point where it meets the ground. You will be asked for its distance along the road.' },
+  near_edge:   { label: 'Near edge',   color: 'var(--near)',   hint: 'Click 4–8 points along the pavement edge nearest the camera, spread from one end of the view to the other.' },
+  far_edge:    { label: 'Far edge',    color: 'var(--far)',    hint: 'Click 4–8 points along the far pavement edge.' },
+  centre_line: { label: 'Centre line', color: 'var(--centre)', hint: 'Optional but helpful: click 4–8 points along the centre line.' },
+  road_polygon:{ label: 'Road outline',color: 'var(--poly)',   hint: 'Click around the stretch of pavement to measure (it may extend past the landmarks). Vehicles outside it are ignored.' },
+};
+const state = { image: '', image_size: null, units: 'ft', road_width: null, landmarks: [], near_edge: [], far_edge: [], centre_line: [], road_polygon: [] };
+let mode = 'landmark', img = null, history = [];
+let view = { s: 1, x: 0, y: 0 };
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), stage = document.getElementById('stage');
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const colorOf = m => css(MODES[m].color.slice(4, -1));
+
+// mode buttons
+const modesEl = document.getElementById('modes');
+for (const [k, m] of Object.entries(MODES)) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.mode = k;
+  b.innerHTML = `<span class="sw" style="background:${m.color}"></span>${m.label}`;
+  b.onclick = () => setMode(k);
+  modesEl.appendChild(b);
+}
+function setMode(k) {
+  mode = k;
+  modesEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.mode === k));
+  document.getElementById('modeHint').textContent = MODES[k].hint;
+}
+setMode('landmark');
+
+// settings
+const unitsEl = document.getElementById('units'), widthEl = document.getElementById('width');
+unitsEl.onchange = () => { state.units = unitsEl.value; document.getElementById('lmUnit').textContent = state.units; renderList(); };
+widthEl.oninput = () => { state.road_width = parseFloat(widthEl.value) || null; };
+
+// files
+document.getElementById('imgIn').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const im = new Image();
+  im.onload = () => { img = im; state.image = f.name; state.image_size = [im.naturalWidth, im.naturalHeight];
+    document.getElementById('empty').hidden = true; fit(); draw(); status(`${f.name}: ${im.naturalWidth}×${im.naturalHeight}`); };
+  im.src = URL.createObjectURL(f);
+};
+document.getElementById('jsonIn').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const d = JSON.parse(await f.text());
+    for (const k of Object.keys(state)) if (d[k] !== undefined) state[k] = d[k];
+    unitsEl.value = state.units; widthEl.value = state.road_width ?? '';
+    document.getElementById('lmUnit').textContent = state.units;
+    renderList(); draw();
+    status(img ? 'points loaded' : `points loaded; now open ${state.image || 'the matching image'}`);
+  } catch (err) { status('could not read that file: ' + err.message); }
+};
+
+// view
+function resize() { cv.width = stage.clientWidth; cv.height = stage.clientHeight; draw(); }
+function fit() { if (!img) return; view.s = Math.min(cv.width / img.naturalWidth, cv.height / img.naturalHeight);
+  view.x = (cv.width - img.naturalWidth * view.s) / 2; view.y = (cv.height - img.naturalHeight * view.s) / 2; }
+window.addEventListener('resize', () => { resize(); });
+const toImg = (cx, cy) => [(cx - view.x) / view.s, (cy - view.y) / view.s];
+const toScr = (x, y) => [x * view.s + view.x, y * view.s + view.y];
+
+stage.addEventListener('wheel', e => {
+  if (!img) return; e.preventDefault();
+  const r = cv.getBoundingClientRect(), cx = e.clientX - r.left, cy = e.clientY - r.top;
+  const [ix, iy] = toImg(cx, cy), k = Math.exp(-e.deltaY * 0.0015);
+  view.s = Math.min(Math.max(view.s * k, 0.05), 20); view.x = cx - ix * view.s; view.y = cy - iy * view.s; draw();
+}, { passive: false });
+
+let drag = null, mouse = null;
+stage.addEventListener('contextmenu', e => e.preventDefault());
+stage.addEventListener('pointerdown', e => {
+  if (!img) return;
+  if (e.button === 2 || e.button === 1 || e.shiftKey) { drag = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y }; stage.setPointerCapture(e.pointerId); return; }
+  if (e.button !== 0) return;
+  const r = cv.getBoundingClientRect();
+  const [x, y] = toImg(e.clientX - r.left, e.clientY - r.top).map(v => Math.round(v * 10) / 10);
+  if (x < 0 || y < 0 || x > img.naturalWidth || y > img.naturalHeight) return;
+  addPoint(x, y);
+});
+stage.addEventListener('pointermove', e => {
+  const r = cv.getBoundingClientRect(); mouse = [e.clientX - r.left, e.clientY - r.top];
+  if (drag) { view.x = drag.vx + e.clientX - drag.x; view.y = drag.vy + e.clientY - drag.y; }
+  draw();
+});
+stage.addEventListener('pointerup', () => { drag = null; });
+stage.addEventListener('pointerleave', () => { mouse = null; draw(); });
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); } });
+
+// editing
+const lmDlg = document.getElementById('lmDlg');
+function addPoint(x, y) {
+  if (mode === 'landmark') {
+    document.getElementById('lmName').value = ''; document.getElementById('lmU').value = '';
+    lmDlg.returnValue = ''; lmDlg.showModal(); document.getElementById('lmU').focus();
+    lmDlg.onclose = () => {
+      if (lmDlg.returnValue !== 'ok') return;
+      const u = parseFloat(document.getElementById('lmU').value); if (isNaN(u)) return;
+      push(); state.landmarks.push({ name: document.getElementById('lmName').value || `landmark ${state.landmarks.length + 1}`, px: [x, y], u });
+      renderList(); draw();
+    };
+    return;
+  }
+  push(); state[mode].push([x, y]); renderList(); draw();
+}
+function push() { history.push(JSON.stringify(state)); if (history.length > 200) history.shift(); }
+function undo() { if (!history.length) return; Object.assign(state, JSON.parse(history.pop())); renderList(); draw(); }
+function remove(kind, i) { push(); state[kind].splice(i, 1); renderList(); draw(); }
+
+function renderList() {
+  const ul = document.getElementById('list'); ul.innerHTML = '';
+  const fmt = p => `(${Math.round(p[0])}, ${Math.round(p[1])})`;
+  state.landmarks.forEach((l, i) => li(`<span class="sw" style="background:${MODES.landmark.color}"></span>${esc(l.name)}: ${l.u} ${state.units} ${fmt(l.px)}`, 'landmarks', i));
+  for (const k of ['near_edge', 'far_edge', 'centre_line', 'road_polygon'])
+    if (state[k].length) li(`<span class="sw" style="background:${MODES[k].color}"></span>${MODES[k].label}: ${state[k].length} points`, k, -1);
+  function li(html, kind, i) {
+    const e = document.createElement('li'); e.innerHTML = `<span>${html}</span>`;
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = i < 0 ? 'clear' : 'remove';
+    b.onclick = () => { if (i < 0) { push(); state[kind] = []; renderList(); draw(); } else remove(kind, i); };
+    e.appendChild(b); ul.appendChild(e);
+  }
+}
+const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height);
+  if (!img) return;
+  ctx.imageSmoothingEnabled = view.s < 2;
+  ctx.drawImage(img, view.x, view.y, img.naturalWidth * view.s, img.naturalHeight * view.s);
+  const line = (pts, col, closed) => {
+    if (!pts.length) return;
+    ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath();
+    pts.forEach((p, i) => { const [x, y] = toScr(...p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    if (closed && pts.length > 2) ctx.closePath();
+    ctx.stroke();
+    pts.forEach(p => { const [x, y] = toScr(...p); ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fill(); });
+  };
+  line(state.road_polygon, colorOf('road_polygon'), true);
+  line(state.near_edge, colorOf('near_edge')); line(state.far_edge, colorOf('far_edge')); line(state.centre_line, colorOf('centre_line'));
+  ctx.font = '13px system-ui, sans-serif';
+  for (const l of state.landmarks) {
+    const [x, y] = toScr(...l.px), c = colorOf('landmark');
+    ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 8, 0, 7); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - 12, y); ctx.lineTo(x + 12, y); ctx.moveTo(x, y - 12); ctx.lineTo(x, y + 12); ctx.stroke();
+    const t = `${l.name} ${l.u} ${state.units}`; ctx.fillStyle = 'rgba(0,0,0,.65)';
+    ctx.fillRect(x + 10, y - 22, ctx.measureText(t).width + 8, 18); ctx.fillStyle = '#fff'; ctx.fillText(t, x + 14, y - 8);
+  }
+  // loupe: 4x magnifier at the cursor for precise clicks
+  if (mouse && !drag) {
+    const [ix, iy] = toImg(...mouse), R = 70, z = Math.max(4, view.s * 4);
+    const lx = Math.min(mouse[0] + 90, cv.width - R - 4), ly = Math.max(mouse[1] - 90, R + 4);
+    ctx.save(); ctx.beginPath(); ctx.arc(lx, ly, R, 0, 7); ctx.clip(); ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(img, ix - R / z, iy - R / z, 2 * R / z, 2 * R / z, lx - R, ly - R, 2 * R, 2 * R);
+    ctx.strokeStyle = '#ff0'; ctx.lineWidth = 1; ctx.beginPath();
+    ctx.moveTo(lx - R, ly); ctx.lineTo(lx + R, ly); ctx.moveTo(lx, ly - R); ctx.lineTo(lx, ly + R); ctx.stroke(); ctx.restore();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(lx, ly, R, 0, 7); ctx.stroke();
+  }
+}
+
+function status(t) { document.getElementById('status').textContent = t; }
+function save() {
+  const miss = [];
+  if (!state.image_size) miss.push('an image');
+  if (!state.road_width) miss.push('the pavement width');
+  if (state.landmarks.length < 3) miss.push('at least 3 landmarks');
+  if (state.near_edge.length < 2 || state.far_edge.length < 2) miss.push('both pavement edges');
+  if (state.road_polygon.length < 3) miss.push('the road outline');
+  if (miss.length && !confirm('Still missing: ' + miss.join(', ') + '. Save anyway?')) return;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(state, null, 1)], { type: 'application/json' }));
+  a.download = 'points.json'; a.click(); status('saved points.json; put it next to the image and run tools/calibrate.py');
+}
+resize(); renderList();
+</script>
+</body>
+</html>
