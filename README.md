@@ -4,6 +4,10 @@ Measure the speed of passing vehicles with an ordinary IP camera, and show the s
 
 It runs as one Docker container. With a Google Coral Edge TPU it uses a few percent of one CPU core. It also runs without a Coral, on the CPU.
 
+![A speeding alert in Discord: "53 mph car heading away from the camera" with a 6-second clip of a yellow car passing](docs/discord-alert.png)
+
+*An optional speeding alert in Discord, with a 6-second clip of the pass.*
+
 > **Accuracy:** readings are estimates. Accuracy depends on how carefully you calibrate. On a well-calibrated camera, simulated tracks are recovered to within about 0.1 mph, and real readings are consistent. This is not a certified speed-measurement device: don't use it for enforcement. Check local rules before recording a public street.
 
 ## How it works
